@@ -1,0 +1,5 @@
+{
+  "name": "MudraVision AI",
+  "description": "Preserving Indian classical dance heritage through real-time AI gesture recognition and digital archiving.",
+  "requestFramePermissions": ["camera"]
+}

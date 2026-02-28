@@ -1,26 +1,63 @@
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap");
+
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-maroon: hsl(348, 100%, 25%);
+  --color-saffron: hsl(32, 100%, 60%);
+  --color-gold: hsl(44, 67%, 56%);
+  --color-ivory: hsl(36, 100%, 99%);
+  --color-darkbrown: hsl(0, 43%, 23%);
+  --font-display: "Playfair Display", serif;
+  --font-sans: "Plus Jakarta Sans", sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@layer base {
+  body {
+    @apply bg-maroon text-ivory font-sans antialiased;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .mandala-pattern {
+    background-image: radial-gradient(
+      circle at center,
+      var(--color-gold) 1px,
+      transparent 1px
+    );
+    background-size: 60px 60px;
+    opacity: 0.15;
+  }
+
+  .glass-panel {
+    @apply bg-ivory/95 backdrop-blur-lg border border-gold;
+  }
+
+  .ivory-card {
+    @apply bg-ivory text-darkbrown;
+  }
+
+  .selection\:bg-saffron::selection {
+    @apply bg-saffron text-maroon;
+  }
+}
+
+@keyframes scan {
+  0% {
+    top: 0%;
+  }
+  100% {
+    top: 100%;
+  }
+}
+
+.animate-scan {
+  animation: scan 4s linear infinite;
 }
