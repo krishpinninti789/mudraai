@@ -1,11 +1,9 @@
-"use client";
+'use client';
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import * as ort from "onnxruntime-web";
-import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
-import CameraFeed from "./components/CameraFeed";
-import LiveTelemetry, { SessionEntry } from "./components/LiveTelemetry";
-import BottomBar from "./components/BottomBar";
+import { useEffect, useRef, useState, useCallback } from 'react';
+import CameraFeed from './components/CameraFeed';
+import LiveTelemetry, { SessionEntry } from './components/LiveTelemetry';
+import BottomBar from './components/BottomBar';
 
 // ─── MediaPipe hand connections (unchanged UI) ──────────────────────────────
 const HAND_CONNECTIONS: [number, number][] = [
@@ -35,23 +33,23 @@ const HAND_CONNECTIONS: [number, number][] = [
 ];
 
 const CLASS_NAMES = [
-  "Alapadmam",
-  "Chandrakala",
-  "Chathurah",
-  "Hamsaasya",
-  "Kapitham",
-  "Kartharimukam",
-  "Mrugasheesha",
-  "Shikaram",
-  "Soochi",
-  "Thamaraichooda",
+  'Alapadmam',
+  'Chandrakala',
+  'Chathurah',
+  'Hamsaasya',
+  'Kapitham',
+  'Kartharimukam',
+  'Mrugasheesha',
+  'Shikaram',
+  'Soochi',
+  'Thamaraichooda',
 ];
 
 export default function DetectPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const [prediction, setPrediction] = useState("");
+  const [prediction, setPrediction] = useState('');
   const [confidence, setConfidence] = useState(0);
   const [latency, setLatency] = useState(0);
   const [fps, setFps] = useState(0);
@@ -62,205 +60,129 @@ export default function DetectPage() {
     { x: number; y: number; z: number }[] | null
   >(null);
 
-  const sessionRef = useRef<ort.InferenceSession | null>(null);
-  const landmarkerRef = useRef<HandLandmarker | null>(null);
-  const lastPredictionRef = useRef("");
+  const sendIntervalRef = useRef<number | null>(null);
+  const lastPredictionRef = useRef('');
   const frameCountRef = useRef(0);
   const fpsTimerRef = useRef(0);
 
-  // ─── Preprocess to [1,3,224,224] tensor ───────────────────────────────────
-  const preprocessImage = (canvas: HTMLCanvasElement) => {
-    const ctx = canvas.getContext("2d")!;
-    const imageData = ctx.getImageData(0, 0, 224, 224);
-    const { data } = imageData;
-
-    const floatData = new Float32Array(1 * 3 * 224 * 224);
-
-    const mean = [0.485, 0.456, 0.406];
-    const std = [0.229, 0.224, 0.225];
-
-    for (let i = 0; i < 224 * 224; i++) {
-      const r = data[i * 4] / 255;
-      const g = data[i * 4 + 1] / 255;
-      const b = data[i * 4 + 2] / 255;
-
-      floatData[i] = (r - mean[0]) / std[0];
-      floatData[i + 224 * 224] = (g - mean[1]) / std[1];
-      floatData[i + 2 * 224 * 224] = (b - mean[2]) / std[2];
-    }
-
-    return new ort.Tensor("float32", floatData, [1, 3, 224, 224]);
-  };
+  // (preprocess removed — frames are sent to backend as images)
 
   // ─── Crop hand region from video ─────────────────────────────────────────
-  const cropHand = (
-    video: HTMLVideoElement,
-    landmarks: { x: number; y: number; z: number }[],
-  ) => {
-    const w = video.videoWidth;
-    const h = video.videoHeight;
+  // We'll send the current video frame as a multipart FormData to the backend.
+  const sendFrameToBackend = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
 
-    const xs = landmarks.map((lm) => lm.x * w);
-    const ys = landmarks.map((lm) => lm.y * h);
+    // draw current frame to an offscreen canvas
+    const temp = document.createElement('canvas');
+    const w = video.videoWidth || 640;
+    const h = video.videoHeight || 480;
+    temp.width = w;
+    temp.height = h;
+    const ctx = temp.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, w, h);
 
-    let xmin = Math.min(...xs);
-    let xmax = Math.max(...xs);
-    let ymin = Math.min(...ys);
-    let ymax = Math.max(...ys);
+    const t0 = performance.now();
 
-    const padding = 40;
+    // convert to blob (jpeg)
+    const blob: Blob | null = await new Promise((resolve) =>
+      temp.toBlob((b) => resolve(b), 'image/jpeg', 0.85),
+    );
+    if (!blob) return;
 
-    xmin = Math.max(0, xmin - padding);
-    ymin = Math.max(0, ymin - padding);
-    xmax = Math.min(w, xmax + padding);
-    ymax = Math.min(h, ymax + padding);
+    const fd = new FormData();
+    fd.append('file', blob, 'frame.jpg');
 
-    const cropWidth = xmax - xmin;
-    const cropHeight = ymax - ymin;
+    try {
+      const resp = await fetch('http://127.0.0.1:8000/predict', {
+        method: 'POST',
+        body: fd,
+      });
 
-    const tempCanvas = document.createElement("canvas");
-    tempCanvas.width = 224;
-    tempCanvas.height = 224;
+      const latencyMs = performance.now() - t0;
+      setLatency(latencyMs);
 
-    const ctx = tempCanvas.getContext("2d")!;
-    ctx.drawImage(video, xmin, ymin, cropWidth, cropHeight, 0, 0, 224, 224);
+      let data: any = null;
+      try {
+        data = await resp.json();
+      } catch (e) {
+        // non-json response fallback
+        const text = await resp.text();
+        data = { text };
+      }
 
-    return tempCanvas;
-  };
+      // Map backend response: { predicted_class, confidence }
+      const detectedMudra = data.predicted_class || '';
+      const conf = typeof data.confidence === 'number' ? data.confidence : 0;
 
-  // ─── CNN Inference ────────────────────────────────────────────────────────
-  const runInference = useCallback(
-    async (landmarks: { x: number; y: number; z: number }[]) => {
-      if (!sessionRef.current || !videoRef.current) return;
-
-      const t0 = performance.now();
-
-      const cropped = cropHand(videoRef.current, landmarks);
-      const tensor = preprocessImage(cropped);
-
-      const inputName = sessionRef.current.inputNames[0];
-      const outputName = sessionRef.current.outputNames[0];
-
-      const output = await sessionRef.current.run({ [inputName]: tensor });
-      const scores = output[outputName].data as Float32Array;
-
-      const maxScore = Math.max(...scores);
-      const classIndex = scores.indexOf(maxScore);
-      const detectedMudra = CLASS_NAMES[classIndex];
-
-      setLatency(performance.now() - t0);
       setPrediction(detectedMudra);
-      setConfidence(maxScore);
-      setCurrentLandmarks(landmarks);
+      setConfidence(conf);
 
-      if (detectedMudra !== lastPredictionRef.current) {
+      if (detectedMudra && detectedMudra !== lastPredictionRef.current) {
         lastPredictionRef.current = detectedMudra;
         const timeStr = new Date().toLocaleTimeString();
         setSessionHistory((prev) =>
           [{ mudra: detectedMudra, time: timeStr }, ...prev].slice(0, 10),
         );
       }
-    },
-    [],
-  );
+    } catch (err) {
+      // keep silent; optionally set a UI error state later
+      // console.error("frame send error", err);
+    }
+  }, []);
 
   // ─── Draw skeleton (unchanged) ───────────────────────────────────────────
-  const drawSkeleton = useCallback(
-    (landmarks: { x: number; y: number; z: number }[]) => {
-      const canvas = canvasRef.current;
-      const video = videoRef.current;
-      if (!canvas || !video) return;
-
-      canvas.width = video.videoWidth || video.clientWidth;
-      canvas.height = video.videoHeight || video.clientHeight;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const W = canvas.width;
-      const H = canvas.height;
-
-      ctx.strokeStyle = "#4ade80";
-      ctx.lineWidth = 2;
-
-      for (const [a, b] of HAND_CONNECTIONS) {
-        ctx.beginPath();
-        ctx.moveTo(landmarks[a].x * W, landmarks[a].y * H);
-        ctx.lineTo(landmarks[b].x * W, landmarks[b].y * H);
-        ctx.stroke();
-      }
-
-      for (const lm of landmarks) {
-        ctx.beginPath();
-        ctx.arc(lm.x * W, lm.y * H, 4, 0, Math.PI * 2);
-        ctx.fillStyle = "#4ade80";
-        ctx.fill();
-      }
-    },
-    [],
-  );
+  const drawSkeleton = useCallback(() => {}, []);
 
   // ─── Init + Loop ─────────────────────────────────────────────────────────
   useEffect(() => {
-    let animationId: number;
-
-    const detectLoop = () => {
-      if (videoRef.current && landmarkerRef.current) {
-        const results = landmarkerRef.current.detectForVideo(
-          videoRef.current,
-          performance.now(),
-        );
-
-        frameCountRef.current += 1;
-        const now = performance.now();
-        if (now - fpsTimerRef.current >= 1000) {
-          setFps(frameCountRef.current);
-          frameCountRef.current = 0;
-          fpsTimerRef.current = now;
-        }
-
-        if (results.landmarks && results.landmarks.length > 0) {
-          const lm = results.landmarks[0];
-          runInference(lm);
-          if (showMesh) drawSkeleton(lm);
-        }
-      }
-
-      animationId = requestAnimationFrame(detectLoop);
-    };
+    let active = true;
 
     const init = async () => {
-      sessionRef.current = await ort.InferenceSession.create(
-        "/models/mudra_strong-new.onnx",
-      );
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        if (!active) return;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
 
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm",
-      );
+        // fps tracking
+        fpsTimerRef.current = performance.now();
 
-      landmarkerRef.current = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-        },
-        numHands: 1,
-        runningMode: "VIDEO",
-      });
+        // send a frame every 500ms (adjust as needed)
+        const sendInterval = window.setInterval(async () => {
+          frameCountRef.current += 1;
+          const now = performance.now();
+          if (now - fpsTimerRef.current >= 1000) {
+            setFps(frameCountRef.current);
+            frameCountRef.current = 0;
+            fpsTimerRef.current = now;
+          }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+          await sendFrameToBackend();
+        }, 500);
+        sendIntervalRef.current = sendInterval as unknown as number;
+      } catch (err) {
+        // ignore errors for now
       }
-
-      fpsTimerRef.current = performance.now();
-      animationId = requestAnimationFrame(detectLoop);
     };
 
     init();
-    return () => cancelAnimationFrame(animationId);
-  }, []);
+
+    return () => {
+      active = false;
+      if (sendIntervalRef.current)
+        window.clearInterval(sendIntervalRef.current);
+      const stream = videoRef.current?.srcObject as MediaStream | undefined;
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, [sendFrameToBackend, showMesh]);
 
   return (
     <div className="flex flex-col h-screen bg-darkbrown overflow-hidden">
