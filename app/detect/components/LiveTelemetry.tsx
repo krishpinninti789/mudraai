@@ -1,6 +1,9 @@
 "use client";
 
 import React from "react";
+import { useRouter } from "next/navigation";
+
+import { MUDRAS } from "@/lib/mudras";
 
 export interface SessionEntry {
   mudra: string;
@@ -48,9 +51,13 @@ const LiveTelemetry: React.FC<LiveTelemetryProps> = ({
   sessionHistory,
   landmarks,
 }) => {
+  const router = useRouter();
   // Score is 0-1 mapped to 0-3 range (Static / Dynamic / Divine)
   const bhavaScore = confidence;
   const bhavaPercent = Math.min(bhavaScore * 100, 100);
+  const matchedMudra = MUDRAS.find(
+    (mudra) => mudra.name.toLowerCase() === prediction.toLowerCase(),
+  );
 
   // Coordinate mesh: show first 6 landmark pairs (x,y)
   const meshCells = landmarks
@@ -59,6 +66,17 @@ const LiveTelemetry: React.FC<LiveTelemetryProps> = ({
         y: lm.y.toFixed(2),
       }))
     : Array(6).fill({ x: "—", y: "—" });
+
+  const getMudraHref = (name: string) => {
+    const target = MUDRAS.find(
+      (mudra) => mudra.name.toLowerCase() === name.toLowerCase(),
+    );
+    return target ? `/mudras/${target.id}` : "/mudras";
+  };
+
+  const handleNavigate = () => {
+    router.push(getMudraHref(prediction));
+  };
 
   return (
     <div className="flex flex-col min-h-0 bg-ivory text-darkbrown px-6 py-5 gap-5 overflow-y-auto">
@@ -84,6 +102,17 @@ const LiveTelemetry: React.FC<LiveTelemetryProps> = ({
           <span className="mt-2 inline-block bg-darkbrown text-ivory text-[9px] font-bold uppercase tracking-widest px-3 py-1 rounded-sm">
             Match Confirmed {(confidence * 100).toFixed(1)}%
           </span>
+        )}
+        {prediction && (
+          <div className="mt-4">
+            <button
+              onClick={handleNavigate}
+              className="inline-flex items-center justify-center rounded-full border border-darkbrown/20 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-darkbrown transition-colors hover:border-darkbrown hover:bg-darkbrown hover:text-ivory"
+              aria-label={`Learn more about ${prediction}`}
+            >
+              Learn more
+            </button>
+          </div>
         )}
       </div>
 
@@ -146,7 +175,7 @@ const LiveTelemetry: React.FC<LiveTelemetryProps> = ({
       <div className="w-full h-px bg-darkbrown/10" />
 
       {/* Coordinate Mesh Data */}
-      <div>
+      {/* <div>
         <p className="text-[9px] font-semibold uppercase tracking-widest text-darkbrown/40 mb-3">
           Coordinate Mesh Data
         </p>
@@ -168,7 +197,7 @@ const LiveTelemetry: React.FC<LiveTelemetryProps> = ({
             </div>
           ))}
         </div>
-      </div>
+      </div> */}
 
       <div className="w-full h-px bg-darkbrown/10" />
 
@@ -187,9 +216,11 @@ const LiveTelemetry: React.FC<LiveTelemetryProps> = ({
             </p>
           )}
           {sessionHistory.map((entry, i) => (
-            <div
+            <button
               key={i}
-              className="flex items-center justify-between border-b border-darkbrown/10 pb-2"
+              type="button"
+              onClick={() => router.push(getMudraHref(entry.mudra))}
+              className="flex items-center justify-between border-b border-darkbrown/10 pb-2 text-left transition-colors hover:text-darkbrown"
             >
               <p className="text-sm font-bold uppercase tracking-wider text-darkbrown">
                 {entry.mudra}
@@ -197,7 +228,7 @@ const LiveTelemetry: React.FC<LiveTelemetryProps> = ({
               <p className="text-[10px] font-mono text-darkbrown/40">
                 {entry.time}
               </p>
-            </div>
+            </button>
           ))}
         </div>
       </div>

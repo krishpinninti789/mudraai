@@ -1,6 +1,9 @@
 "use client";
 
 import React from "react";
+import { useRouter } from "next/navigation";
+
+import { MUDRAS } from "@/lib/mudras";
 
 export type AnalysisStatus =
   | "idle"
@@ -21,6 +24,7 @@ interface AnalysisTelemetryProps {
   confidence: number;
   inferenceMs: number;
   allScores: ScoreEntry[];
+  recentPredictions?: ScoreEntry[];
   landmarks: { x: number; y: number; z: number }[] | null;
   errorMsg?: string;
 }
@@ -88,11 +92,16 @@ const AnalysisTelemetry: React.FC<AnalysisTelemetryProps> = ({
   confidence,
   inferenceMs,
   allScores,
+  recentPredictions,
   landmarks,
   errorMsg,
 }) => {
   const bhavaPercent = Math.min(confidence * 100, 100);
+  const router = useRouter();
   const currentStep = statusToStep[status];
+  const matchedMudra = MUDRAS.find(
+    (mudra) => mudra.name.toLowerCase() === prediction.toLowerCase(),
+  );
 
   const meshCells = landmarks
     ? landmarks
@@ -100,8 +109,16 @@ const AnalysisTelemetry: React.FC<AnalysisTelemetryProps> = ({
         .map((lm) => ({ x: lm.x.toFixed(2), y: lm.y.toFixed(2) }))
     : Array(6).fill({ x: "—", y: "—" });
 
-  // Top-3 scores sorted
-  const top3 = [...allScores].sort((a, b) => b.score - a.score).slice(0, 3);
+  const top3 = recentPredictions?.length
+    ? recentPredictions.slice(0, 3)
+    : [...allScores].sort((a, b) => b.score - a.score).slice(0, 3);
+
+  const handleNavigate = () => {
+    const learnMoreHref = matchedMudra
+      ? `/mudras/${matchedMudra.id}`
+      : "/mudras";
+    router.push(learnMoreHref);
+  };
 
   return (
     <div className="flex flex-col min-h-0 bg-ivory text-darkbrown px-6 py-5 gap-5 overflow-y-auto">
@@ -205,11 +222,20 @@ const AnalysisTelemetry: React.FC<AnalysisTelemetryProps> = ({
             <span className="mt-2 inline-block bg-darkbrown text-ivory text-[9px] font-bold uppercase tracking-widest px-3 py-1 rounded-sm">
               Match Confirmed {(confidence * 100).toFixed(1)}%
             </span>
+            <div className="mt-4">
+              <button
+                onClick={handleNavigate}
+                className="inline-flex items-center justify-center rounded-full border border-darkbrown/20 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-darkbrown transition-colors hover:border-darkbrown hover:bg-darkbrown hover:text-ivory"
+                aria-label={`Learn more about ${prediction}`}
+              >
+                Learn more
+              </button>
+            </div>
           </div>
 
           <div className="w-full h-px bg-darkbrown/10" />
 
-          {/* Inference time */}
+          {/* Inference time
           <div className="flex items-center justify-between bg-white rounded-xl px-5 py-4 border border-darkbrown/10">
             <div>
               <p className="text-[9px] font-semibold uppercase tracking-widest text-darkbrown/40 mb-1">
@@ -225,7 +251,7 @@ const AnalysisTelemetry: React.FC<AnalysisTelemetryProps> = ({
             <div className="w-10 h-10 rounded-full border-2 border-gold flex items-center justify-center text-gold">
               <BoltIcon />
             </div>
-          </div>
+          </div> */}
 
           {/* Bhavas score */}
           <div>
@@ -268,7 +294,9 @@ const AnalysisTelemetry: React.FC<AnalysisTelemetryProps> = ({
           {top3.length > 0 && (
             <div>
               <p className="text-[9px] font-semibold uppercase tracking-widest text-darkbrown/40 mb-3">
-                Top Predictions
+                {recentPredictions?.length
+                  ? "Recent Predictions"
+                  : "Top Predictions"}
               </p>
               <div className="flex flex-col gap-2.5">
                 {top3.map((s, i) => (
@@ -294,33 +322,7 @@ const AnalysisTelemetry: React.FC<AnalysisTelemetryProps> = ({
               </div>
             </div>
           )}
-
-          <div className="w-full h-px bg-darkbrown/10" />
-
-          {/* Coordinate mesh */}
-          <div>
-            <p className="text-[9px] font-semibold uppercase tracking-widest text-darkbrown/40 mb-3">
-              Coordinate Mesh Data
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              {meshCells.map((cell, i) => (
-                <div
-                  key={i}
-                  className="bg-darkbrown/5 border border-darkbrown/10 rounded-lg px-3 py-2 text-center"
-                >
-                  <p className="text-[8px] text-darkbrown/30 uppercase tracking-wider mb-0.5">
-                    #{i + 1}
-                  </p>
-                  <p className="text-[10px] font-mono font-bold text-darkbrown">
-                    {cell.x}
-                  </p>
-                  <p className="text-[10px] font-mono text-darkbrown/50">
-                    {cell.y}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* <div className="w-full h-px bg-darkbrown/10" /> */}
         </>
       )}
     </div>
